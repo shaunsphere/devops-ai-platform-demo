@@ -61,10 +61,18 @@ jobs:
         id: version
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+            TAG="${{ inputs.image_tag }}"
           else
-            echo "tag=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+            TAG="${{ github.event.workflow_run.head_sha }}"
           fi
+
+          if [ -z "$TAG" ]; then
+            echo "ERROR: image tag is empty"
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Using image tag: $TAG"
 
       - name: Show deployment information
         run: |
