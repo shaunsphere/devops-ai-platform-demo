@@ -1,5 +1,9 @@
 name: Deploy DevOps Platform
 
+permissions:
+  contents: read
+  packages: read
+
 on:
   workflow_dispatch:
     inputs:
@@ -38,6 +42,20 @@ jobs:
           registry: ghcr.io
           username: shaunsphere
           password: ${{ secrets.GHCR_READ_TOKEN }}
+
+      - name: Verify GHCR images
+        env:
+          IMAGE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -e
+
+          echo "Testing GHCR access..."
+          echo "Image tag: ${IMAGE_TAG}"
+
+          docker pull ghcr.io/shaunsphere/hello-server1:${IMAGE_TAG}
+          docker pull ghcr.io/shaunsphere/hello-server2:${IMAGE_TAG}
+
+          echo "GHCR image pulls succeeded."
 
       - name: Determine image tag
         id: version
