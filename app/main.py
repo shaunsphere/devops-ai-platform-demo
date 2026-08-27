@@ -11,7 +11,7 @@ SERVER_NAME = os.getenv("SERVER_NAME", "unknown")
 def root():
     return {
         "server": SERVER_NAME,
-        "message": f"Hello from {SERVER_NAME} -ver2 root",
+        "message": f"Hello from {SERVER_NAME} -ver2 root-- deployed by the DevOps platform v4",
     }
 
 
@@ -19,7 +19,7 @@ def root():
 def hello():
     return {
         "server": SERVER_NAME,
-        "message": f"Hello from {SERVER_NAME} -ver2 hello",
+        "message": f"Hello from {SERVER_NAME} -ver2 hello-- deployed by the DevOps platform v4",
     }
 
 
