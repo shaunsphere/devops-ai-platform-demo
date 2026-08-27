@@ -1,0 +1,91 @@
+name: Deploy DevOps Platform
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_version:
+        description: "Application version"
+        required: true
+        default: "2.0"
+
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Deploy to Homelab
+    runs-on:
+      - self-hosted
+      - Linux
+      - X64
+      - devops-demo
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Show environment
+        run: |
+          echo "================================="
+          echo "DevOps Platform Deployment"
+          echo "================================="
+          echo "Host:"
+          hostname
+
+          echo "User:"
+          whoami
+
+          echo "Docker:"
+          docker --version
+
+          echo "Terraform:"
+          terraform version
+
+      - name: Terraform Format Check
+        working-directory: terraform
+        run: |
+          terraform fmt -check
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: |
+          terraform init
+
+      - name: Terraform Validate
+        working-directory: terraform
+        run: |
+          terraform validate
+
+      - name: Terraform Plan
+        working-directory: terraform
+        run: |
+          terraform plan \
+            -var="app_version=${{ github.event.inputs.app_version || '2.0' }}"
+
+      - name: Terraform Apply
+        working-directory: terraform
+        run: |
+          terraform apply \
+            -auto-approve \
+            -var="app_version=${{ github.event.inputs.app_version || '2.0' }}"
+
+      - name: Verify Server 1
+        run: |
+          echo "Testing Server 1..."
+          curl --fail --retry 5 --retry-delay 2 \
+            http://localhost:8001/health
+
+      - name: Verify Server 2
+        run: |
+          echo "Testing Server 2..."
+          curl --fail --retry 5 --retry-delay 2 \
+            http://localhost:8002/health
+
+      - name: Test Server 1 Hello API
+        run: |
+          curl --fail http://localhost:8001/hello
+
+      - name: Test Server 2 Hello API
+        run: |
+          curl --fail http://localhost:8002/hello
