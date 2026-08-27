@@ -24,7 +24,10 @@ jobs:
     name: Deploy to Homelab
     if: >
       github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
+      (
+        github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success'
+      )
 
     runs-on:
       - self-hosted
@@ -45,34 +48,23 @@ jobs:
 
       - name: Verify GHCR images
         env:
-          IMAGE_TAG: ${{ steps.version.outputs.tag }}
+          IMAGE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || github.event.workflow_run.head_sha }}
         run: |
-          set -e
+          set -euo pipefail
 
           echo "Testing GHCR access..."
+          echo "Event: ${{ github.event_name }}"
           echo "Image tag: ${IMAGE_TAG}"
 
-          docker pull ghcr.io/shaunsphere/hello-server1:${IMAGE_TAG}
-          docker pull ghcr.io/shaunsphere/hello-server2:${IMAGE_TAG}
-
-          echo "GHCR image pulls succeeded."
-
-      - name: Determine image tag
-        id: version
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ inputs.image_tag }}"
-          else
-            TAG="${{ github.event.workflow_run.head_sha }}"
-          fi
-
-          if [ -z "$TAG" ]; then
-            echo "ERROR: image tag is empty"
+          if [ -z "${IMAGE_TAG}" ]; then
+            echo "ERROR: IMAGE_TAG is empty"
             exit 1
           fi
 
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "Using image tag: $TAG"
+          docker pull "ghcr.io/shaunsphere/hello-server1:${IMAGE_TAG}"
+          docker pull "ghcr.io/shaunsphere/hello-server2:${IMAGE_TAG}"
+
+          echo "GHCR image pulls succeeded."
 
       - name: Show deployment information
         run: |
@@ -111,16 +103,20 @@ jobs:
 
       - name: Terraform Plan
         working-directory: terraform
+        env:
+          IMAGE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || github.event.workflow_run.head_sha }}
         run: |
           terraform plan \
-            -var="image_tag=${{ steps.version.outputs.tag }}"
+            -var="image_tag=${IMAGE_TAG}"
 
       - name: Terraform Apply
         working-directory: terraform
+        env:
+          IMAGE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || github.event.workflow_run.head_sha }}
         run: |
           terraform apply \
             -auto-approve \
-            -var="image_tag=${{ steps.version.outputs.tag }}"
+            -var="image_tag=${IMAGE_TAG}"
 
       - name: Verify Server 1
         run: |
