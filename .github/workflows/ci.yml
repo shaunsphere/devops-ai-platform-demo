@@ -9,6 +9,10 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   test:
     name: Test Python Application
@@ -32,8 +36,8 @@ jobs:
         run: |
           python -m py_compile app/main.py
 
-  docker-build:
-    name: Build Docker Images
+  docker-build-push:
+    name: Build and Push Docker Images
     runs-on: ubuntu-latest
     needs: test
 
@@ -41,14 +45,35 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build Server 1
         run: |
           docker build \
             -f server1/Dockerfile \
-            -t hello-server1:${{ github.sha }} .
+            -t ghcr.io/shaunsphere/hello-server1:${{ github.sha }} \
+            -t ghcr.io/shaunsphere/hello-server1:latest \
+            .
+
+      - name: Push Server 1
+        run: |
+          docker push ghcr.io/shaunsphere/hello-server1:${{ github.sha }}
+          docker push ghcr.io/shaunsphere/hello-server1:latest
 
       - name: Build Server 2
         run: |
           docker build \
             -f server2/Dockerfile \
-            -t hello-server2:${{ github.sha }} .
+            -t ghcr.io/shaunsphere/hello-server2:${{ github.sha }} \
+            -t ghcr.io/shaunsphere/hello-server2:latest \
+            .
+
+      - name: Push Server 2
+        run: |
+          docker push ghcr.io/shaunsphere/hello-server2:${{ github.sha }}
+          docker push ghcr.io/shaunsphere/hello-server2:latest

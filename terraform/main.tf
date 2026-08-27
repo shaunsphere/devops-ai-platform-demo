@@ -11,26 +11,35 @@ provider "docker" {
   host = "unix:///var/run/docker.sock"
 }
 
+variable "image_tag" {
+  description = "Docker image tag to deploy"
+  type        = string
+}
+
+variable "registry" {
+  description = "Container registry"
+  type        = string
+  default     = "ghcr.io/shaunsphere"
+}
+
 resource "docker_network" "devops_demo" {
   name = "devops-demo-network"
 }
 
 resource "docker_image" "server1" {
-  name = "hello-server1:${var.app_version}"
+  name = "${var.registry}/hello-server1:${var.image_tag}"
 
-  build {
-    context    = ".."
-    dockerfile = "../server1/Dockerfile"
-  }
+  pull_triggers = [
+    var.image_tag
+  ]
 }
 
 resource "docker_image" "server2" {
-  name = "hello-server2:${var.app_version}"
+  name = "${var.registry}/hello-server2:${var.image_tag}"
 
-  build {
-    context    = ".."
-    dockerfile = "../server2/Dockerfile"
-  }
+  pull_triggers = [
+    var.image_tag
+  ]
 }
 
 resource "docker_container" "server1" {
