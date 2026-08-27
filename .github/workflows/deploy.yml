@@ -118,17 +118,47 @@ jobs:
             -auto-approve \
             -var="image_tag=${IMAGE_TAG}"
 
-      - name: Verify Server 1
+      - name: Wait for Server 1
         run: |
-          echo "Testing Server 1..."
-          curl --fail --retry 5 --retry-delay 2 \
-            http://localhost:8001/health
+          set -e
 
-      - name: Verify Server 2
+          echo "Waiting for Server 1..."
+          for i in {1..15}; do
+            if curl --silent --show-error --fail \
+              http://localhost:8001/health; then
+              echo
+              echo "Server 1 is healthy."
+              exit 0
+            fi
+
+            echo "Server 1 not ready yet... attempt $i/15"
+            sleep 2
+          done
+
+          echo "Server 1 failed health check."
+          docker logs terraform-server1
+          exit 1
+
+      - name: Wait for Server 2
         run: |
-          echo "Testing Server 2..."
-          curl --fail --retry 5 --retry-delay 2 \
-            http://localhost:8002/health
+          set -e
+
+          echo "Waiting for Server 2..."
+          for i in {1..15}; do
+            if curl --silent --show-error --fail \
+              http://localhost:8002/health; then
+              echo
+              echo "Server 2 is healthy."
+              exit 0
+            fi
+
+            echo "Server 2 not ready yet... attempt $i/15"
+            sleep 2
+          done
+
+          echo "Server 2 failed health check."
+          docker logs terraform-server2
+          exit 1
 
       - name: Test Server 1 Hello API
         run: |
@@ -137,3 +167,10 @@ jobs:
       - name: Test Server 2 Hello API
         run: |
           curl --fail http://localhost:8002/hello
+
+      - name: TypeScript Deployment Summary
+        uses: ./.github/actions/deployment-summary
+        with:
+          image-tag: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || github.event.workflow_run.head_sha }}
+          server1-url: http://localhost:8001/hello
+          server2-url: http://localhost:8002/hello
