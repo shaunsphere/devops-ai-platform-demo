@@ -1,4 +1,8 @@
 terraform {
+  backend "local" {
+    path = "/var/lib/terraform/devops-ai-platform/terraform.tfstate"
+  }
+
   required_providers {
     docker = {
       source  = "kreuzwerker/docker"
