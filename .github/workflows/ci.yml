@@ -77,3 +77,16 @@ jobs:
         run: |
           docker push ghcr.io/shaunsphere/hello-server2:${{ github.sha }}
           docker push ghcr.io/shaunsphere/hello-server2:latest
+
+      - name: Build Server 3
+        run: |
+          docker build \
+            -f server3/Dockerfile \
+            -t ghcr.io/shaunsphere/hello-server3:${{ github.sha }} \
+            -t ghcr.io/shaunsphere/hello-server3:latest \
+            .
+
+      - name: Push Server 3
+        run: |
+          docker push ghcr.io/shaunsphere/hello-server3:${{ github.sha }}
+          docker push ghcr.io/shaunsphere/hello-server3:latest

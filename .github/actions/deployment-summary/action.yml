@@ -19,12 +19,20 @@ inputs:
     required: false
     default: http://localhost:8002/hello
 
+  server3-url:
+    description: Server 3 hello endpoint (AWS EC2)
+    required: false
+    default: ""
+
 outputs:
   server1-status:
     description: Server 1 HTTP status
 
   server2-status:
     description: Server 2 HTTP status
+
+  server3-status:
+    description: Server 3 HTTP status
 
   deployment-status:
     description: Overall deployment status

@@ -21,7 +21,7 @@ on:
 
 jobs:
   deploy:
-    name: Deploy to Homelab
+    name: Deploy to Homelab & AWS
     if: >
       github.event_name == 'workflow_dispatch' ||
       (
@@ -63,6 +63,7 @@ jobs:
 
           docker pull "ghcr.io/shaunsphere/hello-server1:${IMAGE_TAG}"
           docker pull "ghcr.io/shaunsphere/hello-server2:${IMAGE_TAG}"
+          docker pull "ghcr.io/shaunsphere/hello-server3:${IMAGE_TAG}"
 
           echo "GHCR image pulls succeeded."
 
@@ -76,9 +77,6 @@ jobs:
 
           echo "Runner:"
           echo "$RUNNER_NAME"
-
-          echo "Image tag:"
-          echo "${{ steps.version.outputs.tag }}"
 
           echo "Docker:"
           docker --version
@@ -105,6 +103,9 @@ jobs:
         working-directory: terraform
         env:
           IMAGE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || github.event.workflow_run.head_sha }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
         run: |
           terraform plan \
             -var="image_tag=${IMAGE_TAG}"
@@ -113,10 +114,23 @@ jobs:
         working-directory: terraform
         env:
           IMAGE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || github.event.workflow_run.head_sha }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
         run: |
           terraform apply \
             -auto-approve \
             -var="image_tag=${IMAGE_TAG}"
+
+      - name: Capture Server 3 Endpoint from Terraform
+        id: server3-info
+        working-directory: terraform
+        run: |
+          SERVER3_IP=$(terraform output -raw server3_public_ip)
+          echo "ip=${SERVER3_IP}" >> "$GITHUB_OUTPUT"
+          echo "url=http://${SERVER3_IP}:8000/hello" >> "$GITHUB_OUTPUT"
+          echo "health_url=http://${SERVER3_IP}:8000/health" >> "$GITHUB_OUTPUT"
+          echo "Discovered AWS Server 3 Public IP: ${SERVER3_IP}"
 
       - name: Wait for Server 1
         run: |
@@ -160,6 +174,27 @@ jobs:
           docker logs terraform-server2
           exit 1
 
+      - name: Wait for Server 3 (AWS)
+        env:
+          HEALTH_URL: ${{ steps.server3-info.outputs.health_url }}
+        run: |
+          set -e
+
+          echo "Waiting for Server 3 on AWS (${HEALTH_URL})..."
+          for i in {1..30}; do
+            if curl --silent --show-error --fail "${HEALTH_URL}"; then
+              echo
+              echo "Server 3 (AWS) is healthy."
+              exit 0
+            fi
+
+            echo "Server 3 (AWS) not ready yet... attempt $i/30"
+            sleep 5
+          done
+
+          echo "Server 3 (AWS) failed health check."
+          exit 1
+
       - name: Test Server 1 Hello API
         run: |
           curl --fail http://localhost:8001/hello
@@ -168,9 +203,16 @@ jobs:
         run: |
           curl --fail http://localhost:8002/hello
 
+      - name: Test Server 3 Hello API
+        env:
+          HELLO_URL: ${{ steps.server3-info.outputs.url }}
+        run: |
+          curl --fail "${HELLO_URL}"
+
       - name: TypeScript Deployment Summary
         uses: ./.github/actions/deployment-summary
         with:
           image-tag: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || github.event.workflow_run.head_sha }}
           server1-url: http://localhost:8001/hello
           server2-url: http://localhost:8002/hello
+          server3-url: ${{ steps.server3-info.outputs.url }}
