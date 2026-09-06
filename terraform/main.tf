@@ -23,18 +23,6 @@ provider "aws" {
   region = var.aws_region
 }
 
-variable "image_tag" {
-  description = "Docker image tag to deploy"
-  type        = string
-  default     = "latest"
-}
-
-variable "registry" {
-  description = "Container registry"
-  type        = string
-  default     = "ghcr.io/shaunsphere"
-}
-
 # ==============================================================================
 # 1. Local Homelab Docker Resources (Cluster 1 / Local Standalone)
 # ==============================================================================
@@ -45,12 +33,18 @@ resource "docker_network" "devops_demo" {
 
 resource "docker_image" "server1" {
   name = "${var.registry}/hello-server1:${var.image_tag}"
-  pull_triggers = [var.image_tag]
+
+  pull_triggers = [
+    var.image_tag
+  ]
 }
 
 resource "docker_image" "server2" {
   name = "${var.registry}/hello-server2:${var.image_tag}"
-  pull_triggers = [var.image_tag]
+
+  pull_triggers = [
+    var.image_tag
+  ]
 }
 
 resource "docker_container" "server1" {

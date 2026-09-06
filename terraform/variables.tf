@@ -1,3 +1,15 @@
+variable "image_tag" {
+  description = "Docker image tag to deploy"
+  type        = string
+  default     = "latest"
+}
+
+variable "registry" {
+  description = "Container registry"
+  type        = string
+  default     = "ghcr.io/shaunsphere"
+}
+
 variable "app_version" {
   description = "Docker image version"
   type        = string
