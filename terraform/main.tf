@@ -26,6 +26,7 @@ provider "aws" {
 variable "image_tag" {
   description = "Docker image tag to deploy"
   type        = string
+  default     = "latest"
 }
 
 variable "registry" {
@@ -34,7 +35,9 @@ variable "registry" {
   default     = "ghcr.io/shaunsphere"
 }
 
-# --- Local Docker Resources ---
+# ==============================================================================
+# 1. Local Homelab Docker Resources (Cluster 1 / Local Standalone)
+# ==============================================================================
 
 resource "docker_network" "devops_demo" {
   name = "devops-demo-network"
@@ -42,18 +45,12 @@ resource "docker_network" "devops_demo" {
 
 resource "docker_image" "server1" {
   name = "${var.registry}/hello-server1:${var.image_tag}"
-
-  pull_triggers = [
-    var.image_tag
-  ]
+  pull_triggers = [var.image_tag]
 }
 
 resource "docker_image" "server2" {
   name = "${var.registry}/hello-server2:${var.image_tag}"
-
-  pull_triggers = [
-    var.image_tag
-  ]
+  pull_triggers = [var.image_tag]
 }
 
 resource "docker_container" "server1" {
@@ -84,7 +81,9 @@ resource "docker_container" "server2" {
   }
 }
 
-# --- AWS EC2 Resources (Server 3) ---
+# ==============================================================================
+# 2. AWS Resources: 2-VM K3s Kubernetes Cluster (Cluster 2)
+# ==============================================================================
 
 data "aws_ami" "ubuntu" {
   most_recent = true
@@ -101,24 +100,54 @@ data "aws_ami" "ubuntu" {
   }
 }
 
-resource "aws_security_group" "server3_sg" {
-  name        = "devops-demo-server3-sg"
-  description = "Allow inbound traffic to Server 3"
+# Security Group for AWS K3s Cluster
+resource "aws_security_group" "k3s_sg" {
+  name        = "devops-demo-k3s-sg"
+  description = "Security group for AWS K3s 2-node cluster and ArgoCD communication"
 
+  # Kubernetes API (for ArgoCD / kubectl)
   ingress {
-    description = "HTTP API access"
-    from_port   = 8000
-    to_port     = 8000
+    description = "K3s Kubernetes API server"
+    from_port   = 6443
+    to_port     = 6443
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  # NodePort range for server4, server5, etc.
+  ingress {
+    description = "Kubernetes NodePort services (server4, server5)"
+    from_port   = 30000
+    to_port     = 32767
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # Direct HTTP port range
+  ingress {
+    description = "Direct HTTP services"
+    from_port   = 8000
+    to_port     = 8010
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # SSH access
   ingress {
     description = "SSH access"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # Inter-node Flannel VXLAN & Kubelet within Security Group
+  ingress {
+    description = "Cluster internal traffic"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    self        = true
   }
 
   egress {
@@ -129,42 +158,80 @@ resource "aws_security_group" "server3_sg" {
   }
 
   tags = {
-    Name = "devops-demo-server3-sg"
+    Name = "devops-demo-k3s-sg"
   }
 }
 
-resource "aws_instance" "server3" {
+# EC2 VM 1: K3s Master (Control Plane)
+resource "aws_instance" "k3s_master" {
   ami                         = data.aws_ami.ubuntu.id
   instance_type               = var.aws_instance_type
-  vpc_security_group_ids      = [aws_security_group.server3_sg.id]
+  vpc_security_group_ids      = [aws_security_group.k3s_sg.id]
   user_data_replace_on_change = true
 
   user_data = <<-EOF
     #!/bin/bash
     set -euxo pipefail
 
-    # Install Docker
+    # Update system packages
     apt-get update -y
-    apt-get install -y ca-certificates curl gnupg
-    install -m 0755 -d /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-    chmod a+r /etc/apt/keyrings/docker.gpg
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list
-    apt-get update -y
-    apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-    systemctl enable docker
-    systemctl start docker
+    apt-get install -y curl ca-certificates
 
-    # Run Server 3 container
-    docker pull ${var.registry}/hello-server3:${var.image_tag} || true
-    docker run -d \
-      --name terraform-server3 \
-      --restart always \
-      -p 8000:8000 \
-      ${var.registry}/hello-server3:${var.image_tag}
+    # Get Public & Private IP
+    TOKEN_IMDS=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" || true)
+    PUBLIC_IP=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN_IMDS" http://169.254.169.254/latest/meta-data/public-ipv4 || true)
+
+    # Install K3s Control Plane
+    curl -sfL https://get.k3s.io | K3S_TOKEN="${var.k3s_cluster_token}" sh -s - server \
+      --tls-san "$${PUBLIC_IP}" \
+      --node-name k3s-master \
+      --write-kubeconfig-mode 644
+
+    # Wait for K3s service to be ready
+    systemctl enable k3s
+    systemctl start k3s
   EOF
 
   tags = {
-    Name = "terraform-server3"
+    Name = "k3s-master-node"
+    Role = "control-plane"
+  }
+}
+
+# EC2 VM 2: K3s Worker Node
+resource "aws_instance" "k3s_worker" {
+  ami                         = data.aws_ami.ubuntu.id
+  instance_type               = var.aws_instance_type
+  vpc_security_group_ids      = [aws_security_group.k3s_sg.id]
+  user_data_replace_on_change = true
+  depends_on                  = [aws_instance.k3s_master]
+
+  user_data = <<-EOF
+    #!/bin/bash
+    set -euxo pipefail
+
+    apt-get update -y
+    apt-get install -y curl ca-certificates
+
+    MASTER_IP="${aws_instance.k3s_master.private_ip}"
+    K3S_TOKEN="${var.k3s_cluster_token}"
+
+    # Wait for master API to become ready
+    until curl -k -s "https://$${MASTER_IP}:6443" > /dev/null; do
+      echo "Waiting for K3s master at $${MASTER_IP}:6443..."
+      sleep 5
+    done
+
+    # Join cluster as worker agent
+    curl -sfL https://get.k3s.io | K3S_URL="https://$${MASTER_IP}:6443" K3S_TOKEN="$${K3S_TOKEN}" sh -s - agent \
+      --node-name k3s-worker
+
+    systemctl enable k3s-agent
+    systemctl start k3s-agent
+  EOF
+
+  tags = {
+    Name = "k3s-worker-node"
+    Role = "worker"
   }
 }
