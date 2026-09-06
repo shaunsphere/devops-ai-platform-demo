@@ -108,9 +108,9 @@ resource "aws_security_group" "k3s_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # NodePort range for server4, server5, etc.
+  # NodePort range for server3, server4, server5, etc.
   ingress {
-    description = "Kubernetes NodePort services (server4, server5)"
+    description = "Kubernetes NodePort services (server3, server4, server5)"
     from_port   = 30000
     to_port     = 32767
     protocol    = "tcp"
@@ -174,6 +174,147 @@ resource "aws_instance" "k3s_master" {
     # Get Public & Private IP
     TOKEN_IMDS=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" || true)
     PUBLIC_IP=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN_IMDS" http://169.254.169.254/latest/meta-data/public-ipv4 || true)
+
+    # Pre-configure auto-deploy manifests for server3, server4, server5
+    mkdir -p /var/lib/rancher/k3s/server/manifests/
+    cat > /var/lib/rancher/k3s/server/manifests/aws-apps.yaml << 'MANIFESTS_EOF'
+    apiVersion: v1
+    kind: Namespace
+    metadata:
+      name: aws-apps
+    ---
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: server3
+      namespace: aws-apps
+      labels:
+        app: server3
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app: server3
+      template:
+        metadata:
+          labels:
+            app: server3
+        spec:
+          containers:
+            - name: server3
+              image: ${var.registry}/hello-server3:${var.image_tag}
+              imagePullPolicy: Always
+              ports:
+                - containerPort: 8000
+              readinessProbe:
+                httpGet:
+                  path: /health
+                  port: 8000
+                initialDelaySeconds: 5
+                periodSeconds: 5
+    ---
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: server3-service
+      namespace: aws-apps
+    spec:
+      type: NodePort
+      selector:
+        app: server3
+      ports:
+        - port: 8000
+          targetPort: 8000
+          nodePort: 30003
+    ---
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: server4
+      namespace: aws-apps
+      labels:
+        app: server4
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app: server4
+      template:
+        metadata:
+          labels:
+            app: server4
+        spec:
+          containers:
+            - name: server4
+              image: ${var.registry}/hello-server4:${var.image_tag}
+              imagePullPolicy: Always
+              ports:
+                - containerPort: 8000
+              readinessProbe:
+                httpGet:
+                  path: /health
+                  port: 8000
+                initialDelaySeconds: 5
+                periodSeconds: 5
+    ---
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: server4-service
+      namespace: aws-apps
+    spec:
+      type: NodePort
+      selector:
+        app: server4
+      ports:
+        - port: 8000
+          targetPort: 8000
+          nodePort: 30004
+    ---
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: server5
+      namespace: aws-apps
+      labels:
+        app: server5
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app: server5
+      template:
+        metadata:
+          labels:
+            app: server5
+        spec:
+          containers:
+            - name: server5
+              image: ${var.registry}/hello-server5:${var.image_tag}
+              imagePullPolicy: Always
+              ports:
+                - containerPort: 8000
+              readinessProbe:
+                httpGet:
+                  path: /health
+                  port: 8000
+                initialDelaySeconds: 5
+                periodSeconds: 5
+    ---
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: server5-service
+      namespace: aws-apps
+    spec:
+      type: NodePort
+      selector:
+        app: server5
+      ports:
+        - port: 8000
+          targetPort: 8000
+          nodePort: 30005
+    MANIFESTS_EOF
 
     # Install K3s Control Plane
     curl -sfL https://get.k3s.io | K3S_TOKEN="${var.k3s_cluster_token}" sh -s - server \
