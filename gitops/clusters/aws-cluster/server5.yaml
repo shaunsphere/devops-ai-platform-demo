@@ -15,6 +15,8 @@ spec:
       labels:
         app: server5
     spec:
+      nodeSelector:
+        kubernetes.io/hostname: k3s-worker
       containers:
         - name: server5
           image: ghcr.io/shaunsphere/hello-server5:latest
