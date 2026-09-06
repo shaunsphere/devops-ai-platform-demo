@@ -7,29 +7,38 @@ set -euo pipefail
 AWS_MASTER_IP="${1:-}"
 
 if [ -z "${AWS_MASTER_IP}" ]; then
-    echo "Usage: $0 <AWS_MASTER_PUBLIC_IP>"
-    echo "Example: $0 54.210.12.34"
+    echo "=========================================================="
+    echo "ERROR: Missing AWS Master Public IP argument."
+    echo "Do not type the '<' or '>' angle brackets."
+    echo
+    echo "Usage:"
+    echo "  $0 <AWS_MASTER_PUBLIC_IP>"
+    echo
+    echo "Example (using your AWS IP):"
+    echo "  $0 34.224.82.72"
+    echo "=========================================================="
     exit 1
 fi
 
-echo "====================================================="
+echo "=========================================================="
 echo "Registering AWS K3s Cluster ($AWS_MASTER_IP) into ArgoCD..."
-echo "====================================================="
+echo "=========================================================="
 
-# Login to ArgoCD locally
-ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d)
-argocd login localhost:8080 --username admin --password "${ARGOCD_PASSWORD}" --insecure --grpc-web || true
+export KUBECONFIG="${HOME}/.kube/config"
 
-echo "Please ensure you have AWS K3s kubeconfig context in your ~/.kube/config"
-echo "Registering cluster name: aws-k3s-cluster..."
-
-# Register external cluster with ArgoCD
-argocd cluster add aws-k3s --name aws-k3s-cluster --yes || true
-
-echo
-echo "Applying GitOps Root Applications..."
+# 1. Apply the GitOps Root Applications
+echo "Applying ArgoCD GitOps Applications..."
 kubectl apply -f gitops/argocd-apps/local-apps.yaml
 kubectl apply -f gitops/argocd-apps/aws-apps.yaml
 
-echo "ArgoCD multi-cluster registration complete!"
-echo "Check status in ArgoCD UI: https://localhost:8080"
+echo
+echo "=========================================================="
+echo "ArgoCD Applications configured successfully!"
+echo "=========================================================="
+echo "1. Homelab Apps: http://localhost:8001 / http://localhost:8002"
+echo "2. AWS Apps:     http://${AWS_MASTER_IP}:30003"
+echo "                 http://${AWS_MASTER_IP}:30004"
+echo "                 http://${AWS_MASTER_IP}:30005"
+echo
+echo "View in ArgoCD Web UI: https://localhost:8080"
+echo "=========================================================="
