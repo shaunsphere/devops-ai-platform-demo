@@ -5,17 +5,29 @@
 set -euo pipefail
 
 echo "====================================================="
-echo "Installing K3s on rainbowsrv (Cluster 1: Local)..."
+echo "Configuring K3s permissions on rainbowsrv..."
 echo "====================================================="
 
 if ! command -v k3s &> /dev/null; then
+    echo "Installing K3s..."
     curl -sfL https://get.k3s.io | sh -s - --write-kubeconfig-mode 644
     echo "K3s installed successfully."
 else
     echo "K3s is already installed."
 fi
 
-export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+# Ensure user has read permissions to K3s kubeconfig
+echo "Setting up ~/.kube/config for user $USER..."
+mkdir -p "$HOME/.kube"
+sudo cp /etc/rancher/k3s/k3s.yaml "$HOME/.kube/config"
+sudo chown -R "$USER:$USER" "$HOME/.kube"
+chmod 600 "$HOME/.kube/config"
+sudo chmod 644 /etc/rancher/k3s/k3s.yaml || true
+
+export KUBECONFIG="$HOME/.kube/config"
+
+echo "Verifying kubectl connection..."
+kubectl cluster-info
 
 echo
 echo "====================================================="
