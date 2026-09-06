@@ -1,6 +1,6 @@
 name: Deployment Summary
 
-description: Verify deployed services and publish a deployment summary
+description: Verify deployed services across multiple clusters and publish a deployment summary
 
 author: Shaun Nguyen
 
@@ -10,17 +10,27 @@ inputs:
     required: true
 
   server1-url:
-    description: Server 1 hello endpoint
+    description: Server 1 hello endpoint (Homelab)
     required: false
     default: http://localhost:8001/hello
 
   server2-url:
-    description: Server 2 hello endpoint
+    description: Server 2 hello endpoint (Homelab)
     required: false
     default: http://localhost:8002/hello
 
   server3-url:
-    description: Server 3 hello endpoint (AWS EC2)
+    description: Server 3 hello endpoint (AWS K3s NodePort 30003)
+    required: false
+    default: ""
+
+  server4-url:
+    description: Server 4 hello endpoint (AWS K3s NodePort 30004)
+    required: false
+    default: ""
+
+  server5-url:
+    description: Server 5 hello endpoint (AWS K3s NodePort 30005)
     required: false
     default: ""
 
@@ -33,6 +43,12 @@ outputs:
 
   server3-status:
     description: Server 3 HTTP status
+
+  server4-status:
+    description: Server 4 HTTP status
+
+  server5-status:
+    description: Server 5 HTTP status
 
   deployment-status:
     description: Overall deployment status

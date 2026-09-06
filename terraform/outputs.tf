@@ -23,6 +23,11 @@ output "k3s_api_server" {
   value       = "https://${aws_instance.k3s_master.public_ip}:6443"
 }
 
+output "server3_url" {
+  description = "Public URL of Server 3 on AWS K3s Cluster"
+  value       = "http://${aws_instance.k3s_master.public_ip}:30003/hello"
+}
+
 output "server4_url" {
   description = "Public URL of Server 4 on AWS K3s Cluster"
   value       = "http://${aws_instance.k3s_master.public_ip}:30004/hello"

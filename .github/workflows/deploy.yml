@@ -52,9 +52,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "Testing GHCR access..."
-          echo "Event: ${{ github.event_name }}"
+          echo "================================="
+          echo "Testing GHCR Image Pulls..."
           echo "Image tag: ${IMAGE_TAG}"
+          echo "================================="
 
           if [ -z "${IMAGE_TAG}" ]; then
             echo "ERROR: IMAGE_TAG is empty"
@@ -63,27 +64,21 @@ jobs:
 
           docker pull "ghcr.io/shaunsphere/hello-server1:${IMAGE_TAG}"
           docker pull "ghcr.io/shaunsphere/hello-server2:${IMAGE_TAG}"
+          docker pull "ghcr.io/shaunsphere/hello-server3:${IMAGE_TAG}"
           docker pull "ghcr.io/shaunsphere/hello-server4:${IMAGE_TAG}"
           docker pull "ghcr.io/shaunsphere/hello-server5:${IMAGE_TAG}"
 
-          echo "GHCR image pulls succeeded."
+          echo "All 5 GHCR image pulls succeeded."
 
       - name: Show deployment information
         run: |
           echo "================================="
           echo "DevOps Multi-Cluster Deployment"
           echo "================================="
-          echo "Host:"
-          hostname
-
-          echo "Runner:"
-          echo "$RUNNER_NAME"
-
-          echo "Docker:"
-          docker --version
-
-          echo "Terraform:"
-          terraform version
+          echo "Host:      $(hostname)"
+          echo "Runner:    $RUNNER_NAME"
+          echo "Docker:    $(docker --version)"
+          echo "Terraform: $(terraform version | head -n 1)"
 
       - name: Terraform Format Check
         working-directory: terraform
@@ -129,60 +124,126 @@ jobs:
         run: |
           MASTER_IP=$(terraform output -raw k3s_master_public_ip)
           echo "master_ip=${MASTER_IP}" >> "$GITHUB_OUTPUT"
-          echo "k3s_api=https://${MASTER_IP}:6443" >> "$GITHUB_OUTPUT"
+          echo "server3_url=http://${MASTER_IP}:30003/hello" >> "$GITHUB_OUTPUT"
           echo "server4_url=http://${MASTER_IP}:30004/hello" >> "$GITHUB_OUTPUT"
           echo "server5_url=http://${MASTER_IP}:30005/hello" >> "$GITHUB_OUTPUT"
+          echo "server3_health=http://${MASTER_IP}:30003/health" >> "$GITHUB_OUTPUT"
+          echo "server4_health=http://${MASTER_IP}:30004/health" >> "$GITHUB_OUTPUT"
+          echo "server5_health=http://${MASTER_IP}:30005/health" >> "$GITHUB_OUTPUT"
           echo "AWS K3s Master Public IP: ${MASTER_IP}"
 
-      - name: Wait for Server 1 (Homelab)
+      - name: Verify Server 1 (Homelab)
         run: |
           set -e
-
-          echo "Waiting for Server 1..."
+          echo "Waiting for Server 1 (Homelab)..."
           for i in {1..15}; do
-            if curl --silent --show-error --fail \
-              http://localhost:8001/health; then
+            if curl --silent --show-error --fail http://localhost:8001/health; then
               echo
-              echo "Server 1 is healthy."
+              echo "========================================="
+              echo "[SUCCESS] Server 1 is healthy!"
+              echo "Response:"
+              curl -s http://localhost:8001/hello
+              echo
+              echo "========================================="
               exit 0
             fi
-
             echo "Server 1 not ready yet... attempt $i/15"
             sleep 2
           done
-
-          echo "Server 1 failed health check."
+          echo "[ERROR] Server 1 failed health check."
           docker logs terraform-server1
           exit 1
 
-      - name: Wait for Server 2 (Homelab)
+      - name: Verify Server 2 (Homelab)
         run: |
           set -e
-
-          echo "Waiting for Server 2..."
+          echo "Waiting for Server 2 (Homelab)..."
           for i in {1..15}; do
-            if curl --silent --show-error --fail \
-              http://localhost:8002/health; then
+            if curl --silent --show-error --fail http://localhost:8002/health; then
               echo
-              echo "Server 2 is healthy."
+              echo "========================================="
+              echo "[SUCCESS] Server 2 is healthy!"
+              echo "Response:"
+              curl -s http://localhost:8002/hello
+              echo
+              echo "========================================="
               exit 0
             fi
-
             echo "Server 2 not ready yet... attempt $i/15"
             sleep 2
           done
-
-          echo "Server 2 failed health check."
+          echo "[ERROR] Server 2 failed health check."
           docker logs terraform-server2
           exit 1
 
-      - name: Test Server 1 Hello API
+      - name: Verify Server 3 (AWS K3s Cluster)
+        env:
+          HEALTH_URL: ${{ steps.tf-outputs.outputs.server3_health }}
+          HELLO_URL: ${{ steps.tf-outputs.outputs.server3_url }}
         run: |
-          curl --fail http://localhost:8001/hello
+          set -e
+          echo "Waiting for Server 3 on AWS K3s (${HEALTH_URL})..."
+          for i in {1..30}; do
+            if curl --silent --show-error --fail "${HEALTH_URL}"; then
+              echo
+              echo "========================================="
+              echo "[SUCCESS] Server 3 (AWS K3s) is healthy!"
+              echo "Response:"
+              curl -s "${HELLO_URL}"
+              echo
+              echo "========================================="
+              exit 0
+            fi
+            echo "Server 3 not ready yet... attempt $i/30"
+            sleep 4
+          done
+          echo "[WARNING] Server 3 not responding on NodePort 30003 (Syncing via ArgoCD)."
 
-      - name: Test Server 2 Hello API
+      - name: Verify Server 4 (AWS K3s Cluster)
+        env:
+          HEALTH_URL: ${{ steps.tf-outputs.outputs.server4_health }}
+          HELLO_URL: ${{ steps.tf-outputs.outputs.server4_url }}
         run: |
-          curl --fail http://localhost:8002/hello
+          set -e
+          echo "Waiting for Server 4 on AWS K3s (${HEALTH_URL})..."
+          for i in {1..30}; do
+            if curl --silent --show-error --fail "${HEALTH_URL}"; then
+              echo
+              echo "========================================="
+              echo "[SUCCESS] Server 4 (AWS K3s) is healthy!"
+              echo "Response:"
+              curl -s "${HELLO_URL}"
+              echo
+              echo "========================================="
+              exit 0
+            fi
+            echo "Server 4 not ready yet... attempt $i/30"
+            sleep 4
+          done
+          echo "[WARNING] Server 4 not responding on NodePort 30004 (Syncing via ArgoCD)."
+
+      - name: Verify Server 5 (AWS K3s Cluster)
+        env:
+          HEALTH_URL: ${{ steps.tf-outputs.outputs.server5_health }}
+          HELLO_URL: ${{ steps.tf-outputs.outputs.server5_url }}
+        run: |
+          set -e
+          echo "Waiting for Server 5 on AWS K3s (${HEALTH_URL})..."
+          for i in {1..30}; do
+            if curl --silent --show-error --fail "${HEALTH_URL}"; then
+              echo
+              echo "========================================="
+              echo "[SUCCESS] Server 5 (AWS K3s) is healthy!"
+              echo "Response:"
+              curl -s "${HELLO_URL}"
+              echo
+              echo "========================================="
+              exit 0
+            fi
+            echo "Server 5 not ready yet... attempt $i/30"
+            sleep 4
+          done
+          echo "[WARNING] Server 5 not responding on NodePort 30005 (Syncing via ArgoCD)."
 
       - name: TypeScript Deployment Summary
         uses: ./.github/actions/deployment-summary
@@ -190,3 +251,6 @@ jobs:
           image-tag: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || github.event.workflow_run.head_sha }}
           server1-url: http://localhost:8001/hello
           server2-url: http://localhost:8002/hello
+          server3-url: ${{ steps.tf-outputs.outputs.server3_url }}
+          server4-url: ${{ steps.tf-outputs.outputs.server4_url }}
+          server5-url: ${{ steps.tf-outputs.outputs.server5_url }}

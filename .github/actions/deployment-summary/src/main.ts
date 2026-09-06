@@ -1,132 +1,152 @@
 import * as core from "@actions/core";
 
 interface HealthResult {
+  serverName: string;
+  location: string;
+  url: string;
   statusCode: number;
   body: string;
+  healthy: boolean;
 }
 
-async function checkEndpoint(url: string): Promise<HealthResult> {
-  const response = await fetch(url);
+async function checkEndpoint(
+  serverName: string,
+  location: string,
+  url: string
+): Promise<HealthResult> {
+  if (!url) {
+    return {
+      serverName,
+      location,
+      url: "N/A",
+      statusCode: 0,
+      body: "Not configured",
+      healthy: true
+    };
+  }
 
-  const body = await response.text();
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
 
-  return {
-    statusCode: response.status,
-    body
-  };
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeout);
+    const body = await response.text();
+    const healthy = response.status >= 200 && response.status < 300;
+
+    return {
+      serverName,
+      location,
+      url,
+      statusCode: response.status,
+      body,
+      healthy
+    };
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Request failed";
+    return {
+      serverName,
+      location,
+      url,
+      statusCode: 500,
+      body: errorMessage,
+      healthy: false
+    };
+  }
 }
 
 async function run(): Promise<void> {
   try {
-    const imageTag = core.getInput("image-tag", {
-      required: true
-    });
+    const imageTag = core.getInput("image-tag", { required: true });
+    const server1Url = core.getInput("server1-url", { required: false });
+    const server2Url = core.getInput("server2-url", { required: false });
+    const server3Url = core.getInput("server3-url", { required: false });
+    const server4Url = core.getInput("server4-url", { required: false });
+    const server5Url = core.getInput("server5-url", { required: false });
 
-    const server1Url = core.getInput("server1-url", {
-      required: true
-    });
+    core.info("==================================================");
+    core.info("  Multi-Cluster DevOps Deployment Verification    ");
+    core.info("==================================================");
+    core.info(`Image Tag: ${imageTag}`);
 
-    const server2Url = core.getInput("server2-url", {
-      required: true
-    });
+    const checks = await Promise.all([
+      checkEndpoint("Server 1", "Homelab (rainbowsrv)", server1Url),
+      checkEndpoint("Server 2", "Homelab (rainbowsrv)", server2Url),
+      checkEndpoint("Server 3", "AWS K3s (NodePort 30003)", server3Url),
+      checkEndpoint("Server 4", "AWS K3s (NodePort 30004)", server4Url),
+      checkEndpoint("Server 5", "AWS K3s (NodePort 30005)", server5Url)
+    ]);
 
-    const server3Url = core.getInput("server3-url", {
-      required: false
-    });
+    const activeChecks = checks.filter((c) => c.url !== "N/A");
+    const allHealthy = activeChecks.every((c) => c.healthy);
 
-    core.info("========================================");
-    core.info("TypeScript DevOps Deployment Action");
-    core.info("========================================");
+    // Set outputs
+    for (const c of checks) {
+      const key = `${c.serverName.toLowerCase().replace(" ", "")}-status`;
+      core.setOutput(key, c.statusCode.toString());
+    }
+    core.setOutput("deployment-status", allHealthy ? "success" : "failed");
 
-    core.info(`Image: ${imageTag}`);
-    core.info(`Server 1: ${server1Url}`);
-    core.info(`Server 2: ${server2Url}`);
-    if (server3Url) {
-      core.info(`Server 3 (AWS): ${server3Url}`);
+    // Print individual logs
+    core.info("\n--- Service Health Status Logs ---");
+    for (const c of activeChecks) {
+      if (c.healthy) {
+        core.info(`[SUCCESS] ${c.serverName} (${c.location}) is HEALTHY!`);
+        core.info(`          URL:      ${c.url}`);
+        core.info(`          Status:   HTTP ${c.statusCode}`);
+        core.info(`          Response: ${c.body}\n`);
+      } else {
+        core.error(`[FAILED]  ${c.serverName} (${c.location}) is UNHEALTHY!`);
+        core.error(`          URL:      ${c.url}`);
+        core.error(`          Status:   HTTP ${c.statusCode}`);
+        core.error(`          Response: ${c.body}\n`);
+      }
     }
 
-    const checkPromises: [
-      Promise<HealthResult>,
-      Promise<HealthResult>,
-      Promise<HealthResult | null>
-    ] = [
-      checkEndpoint(server1Url),
-      checkEndpoint(server2Url),
-      server3Url ? checkEndpoint(server3Url) : Promise.resolve(null)
+    // Build GitHub step summary table
+    const tableHeader: any[] = [
+      { data: "Service", header: true },
+      { data: "Cluster / Location", header: true },
+      { data: "URL", header: true },
+      { data: "HTTP Status", header: true },
+      { data: "Health", header: true }
     ];
 
-    const [server1, server2, server3] = await Promise.all(checkPromises);
+    const tableRows: any[][] = [tableHeader];
 
-    const server1Healthy =
-      server1.statusCode >= 200 && server1.statusCode < 300;
-
-    const server2Healthy =
-      server2.statusCode >= 200 && server2.statusCode < 300;
-
-    const server3Healthy = server3
-      ? server3.statusCode >= 200 && server3.statusCode < 300
-      : true;
-
-    core.setOutput("server1-status", server1.statusCode.toString());
-    core.setOutput("server2-status", server2.statusCode.toString());
-    if (server3) {
-      core.setOutput("server3-status", server3.statusCode.toString());
-    }
-
-    const deploymentSuccessful =
-      server1Healthy && server2Healthy && server3Healthy;
-
-    core.setOutput(
-      "deployment-status",
-      deploymentSuccessful ? "success" : "failed"
-    );
-
-    const tableRows = [
-      [
-        { data: "Property", header: true },
-        { data: "Value", header: true }
-      ],
-      ["Image", imageTag],
-      ["Server 1 HTTP (Homelab)", server1.statusCode.toString()],
-      ["Server 2 HTTP (Homelab)", server2.statusCode.toString()]
-    ];
-
-    if (server3) {
+    for (const c of activeChecks) {
       tableRows.push([
-        "Server 3 HTTP (AWS EC2)",
-        server3.statusCode.toString()
+        c.serverName,
+        c.location,
+        c.url,
+        c.statusCode.toString(),
+        c.healthy ? "✅ HEALTHY" : "❌ FAILED"
       ]);
     }
 
-    tableRows.push([
-      "Overall Status",
-      deploymentSuccessful ? "SUCCESS" : "FAILED"
-    ]);
-
-    let responseSummary = `Server 1:\n${server1.body}\n\nServer 2:\n${server2.body}`;
-    if (server3) {
-      responseSummary += `\n\nServer 3 (AWS):\n${server3.body}`;
+    let responsesCodeBlock = "";
+    for (const c of activeChecks) {
+      responsesCodeBlock += `// === ${c.serverName} (${c.location}) ===\n// URL: ${c.url}\n${c.body}\n\n`;
     }
 
     await core.summary
-      .addHeading("DevOps Deployment Summary")
+      .addHeading("DevOps Multi-Cluster Deployment Summary", 2)
       .addTable(tableRows)
-      .addHeading("Server Responses")
-      .addCodeBlock(responseSummary, "json")
+      .addHeading("Server Responses", 3)
+      .addCodeBlock(responsesCodeBlock.trim(), "json")
       .write();
 
-    core.info(`Server 1: HTTP ${server1.statusCode}`);
-    core.info(`Server 2: HTTP ${server2.statusCode}`);
-    if (server3) {
-      core.info(`Server 3 (AWS): HTTP ${server3.statusCode}`);
-    }
-
-    if (!deploymentSuccessful) {
-      core.setFailed("One or more deployment health checks failed.");
+    if (!allHealthy) {
+      core.setFailed(
+        "One or more server health checks failed across the clusters."
+      );
       return;
     }
 
-    core.info("Deployment verification succeeded.");
+    core.info("==================================================");
+    core.info("  All 5 servers successfully verified & healthy!  ");
+    core.info("==================================================");
   } catch (error) {
     if (error instanceof Error) {
       core.setFailed(error.message);
